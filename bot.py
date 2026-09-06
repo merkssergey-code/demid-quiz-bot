@@ -4301,6 +4301,31 @@ def get_leaderboard(limit=10):
 
 
 # =========================
+# ПЕРЕМЕШИВАНИЕ ВАРИАНТОВ ОТВЕТА
+# =========================
+# В базе вопросов правильный ответ почти всегда записан первым
+# (так было удобнее их писать). Чтобы в игре нельзя было угадывать
+# "всегда жми первую кнопку", перемешиваем варианты при выборе
+# вопроса для конкретной игры, сохраняя связь с правильным ответом.
+
+def shuffle_question(question):
+
+    indices = list(range(len(question["options"])))
+
+    random.shuffle(indices)
+
+    new_question = dict(question)
+
+    new_question["options"] = [
+        question["options"][i] for i in indices
+    ]
+
+    new_question["answer"] = indices.index(question["answer"])
+
+    return new_question
+
+
+# =========================
 # КЛАВИАТУРЫ
 # =========================
 
@@ -4571,27 +4596,14 @@ async def callbacks(callback: types.CallbackQuery):
 
         count = min(QUESTIONS_PER_GAME, len(pool))
 
-        selected = random.sample(pool, count)
+        selected = random.sample(
+            pool,
+            count,
+        )
 
-        # ВАЖНО: перемешиваем варианты ОТДЕЛЬНО для каждой игры.
-        # Исходный QUESTIONS не изменяем. Индекс правильного ответа
-        # пересчитываем после перемешивания. Поэтому правильный вариант
-        # может оказаться 1-м, 2-м, 3-м или 4-м с одинаковой вероятностью.
-        shuffled_questions = []
-        for original in selected:
-            question = original.copy()
-            pairs = list(enumerate(original["options"]))
-            random.shuffle(pairs)
-
-            question["options"] = [option for _, option in pairs]
-            question["answer"] = next(
-                new_index
-                for new_index, (old_index, _) in enumerate(pairs)
-                if old_index == original["answer"]
-            )
-            shuffled_questions.append(question)
-
-        selected = shuffled_questions
+        selected = [
+            shuffle_question(q) for q in selected
+        ]
 
         games[user_id] = {
             "category": category,
@@ -4812,9 +4824,26 @@ async def startup():
 
     init_db()
 
-    await bot.set_webhook(
-        WEBHOOK_BASE_URL + WEBHOOK_PATH
-    )
+    desired_url = WEBHOOK_BASE_URL + WEBHOOK_PATH
+
+    # Ставим вебхук заново только если он ещё не установлен
+    # или указывает не туда. Render перезапускает процесс часто
+    # (сон/пробуждение, каждый деплой), и если дёргать set_webhook
+    # при каждом запуске без необходимости, Telegram может временно
+    # заблокировать эти вызовы (flood control). Заодно оборачиваем
+    # в try/except, чтобы даже при ошибке сервис всё равно поднялся
+    # и отвечал на health-check, а не падал насмерть.
+    try:
+
+        current = await bot.get_webhook_info()
+
+        if current.url != desired_url:
+
+            await bot.set_webhook(desired_url)
+
+    except Exception as error:
+
+        print(f"Не удалось проверить/установить вебхук при старте: {error}")
 
 
 # =========================
