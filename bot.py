@@ -4107,34 +4107,32 @@ QUESTIONS = {
 # =========================
 # КАРТИНКИ К ВОПРОСАМ
 # =========================
-# Изображения лежат в репозитории на GitHub, в папке /images.
-# Если поменяешь название репозитория или ветку — поправь этот адрес.
+# Картинки сейчас не используются (не загружены в репозиторий).
+# Если захочешь их вернуть, залей папку /images в GitHub-репозиторий
+# и раскомментируй блок ниже.
 
-IMAGES_BASE_URL = (
-    "https://raw.githubusercontent.com/"
-    "merkssergey-code/demid-quiz-bot/main/images"
-)
-
-CATEGORY_IMAGES = {
-    "minecraft": f"{IMAGES_BASE_URL}/minecraft.png",
-    "roblox": f"{IMAGES_BASE_URL}/roblox.png",
-    "brawl_stars": f"{IMAGES_BASE_URL}/brawl_stars.png",
-    "sport": f"{IMAGES_BASE_URL}/sport.png",
-    "space": f"{IMAGES_BASE_URL}/space.png",
-    "math": f"{IMAGES_BASE_URL}/math.png",
-    "russian": f"{IMAGES_BASE_URL}/russian.png",
-    "english": f"{IMAGES_BASE_URL}/english.png",
-}
-
-# Помечаем ровно половину вопросов в каждой категории картинкой
-# (через одного), чтобы игра была разнообразнее, но не грузила
-# картинку на каждый вопрос подряд.
-for _cat, _pool in QUESTIONS.items():
-    _img_url = CATEGORY_IMAGES.get(_cat)
-    if _img_url:
-        for _i, _q in enumerate(_pool):
-            if _i % 2 == 0:
-                _q["img"] = _img_url
+# IMAGES_BASE_URL = (
+#     "https://raw.githubusercontent.com/"
+#     "merkssergey-code/demid-quiz-bot/main/images"
+# )
+#
+# CATEGORY_IMAGES = {
+#     "minecraft": f"{IMAGES_BASE_URL}/minecraft.png",
+#     "roblox": f"{IMAGES_BASE_URL}/roblox.png",
+#     "brawl_stars": f"{IMAGES_BASE_URL}/brawl_stars.png",
+#     "sport": f"{IMAGES_BASE_URL}/sport.png",
+#     "space": f"{IMAGES_BASE_URL}/space.png",
+#     "math": f"{IMAGES_BASE_URL}/math.png",
+#     "russian": f"{IMAGES_BASE_URL}/russian.png",
+#     "english": f"{IMAGES_BASE_URL}/english.png",
+# }
+#
+# for _cat, _pool in QUESTIONS.items():
+#     _img_url = CATEGORY_IMAGES.get(_cat)
+#     if _img_url:
+#         for _i, _q in enumerate(_pool):
+#             if _i % 2 == 0:
+#                 _q["img"] = _img_url
 
 
 # =========================
@@ -4814,16 +4812,29 @@ async def send_question(
 
     img = question.get("img")
 
+    sent_as_photo = False
+
     if img:
 
-        await bot.send_photo(
-            chat_id,
-            photo=img,
-            caption=text,
-            reply_markup=answer_keyboard(question),
-        )
+        try:
 
-    else:
+            await bot.send_photo(
+                chat_id,
+                photo=img,
+                caption=text,
+                reply_markup=answer_keyboard(question),
+            )
+
+            sent_as_photo = True
+
+        except Exception as error:
+
+            # Если картинка недоступна (например, ещё не загружена
+            # на GitHub, или ссылка временно не отвечает) — не должны
+            # оставлять игрока без вопроса. Просто отправляем текстом.
+            print(f"Не удалось отправить картинку к вопросу: {error}")
+
+    if not sent_as_photo:
 
         await bot.send_message(
             chat_id,
