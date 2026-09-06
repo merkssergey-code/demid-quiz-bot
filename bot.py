@@ -4478,6 +4478,38 @@ async def callbacks(callback: types.CallbackQuery):
     data = callback.data
     user_id = callback.from_user.id
 
+    # Особый случай: прислали ответ на вопрос, а активной игры для
+    # этого пользователя уже нет (например, бот перезапускался и
+    # память с играми очистилась). Тут нужно ответить конкретным
+    # алертом с текстом, а не пустым подтверждением — а подтвердить
+    # callback можно только один раз, поэтому обрабатываем это
+    # до общего подтверждения ниже.
+    if data.startswith("answer:") and user_id not in games:
+
+        try:
+            await callback.answer(
+                "Начни новую игру",
+                show_alert=True,
+            )
+        except Exception:
+            pass
+
+        return
+
+    # Подтверждаем нажатие СРАЗУ, до любой более медленной работы
+    # (удаление/отправка сообщений, картинки, запись в базу).
+    # У Telegram есть короткое окно (несколько секунд) на ответ —
+    # если подтвердить нажатие только в конце, после долгих операций,
+    # оно может "протухнуть", и Telegram вернёт ошибку
+    # "query is too old". Само по себе show_screen/send_question
+    # ниже уже не нуждаются в отдельном ответе на callback.
+    try:
+        await callback.answer()
+    except Exception:
+        # Если само подтверждение опоздало — не страшно,
+        # просто продолжаем обрабатывать нажатие как обычно.
+        pass
+
     # -------------------------
     # ИГРАТЬ
     # -------------------------
@@ -4489,8 +4521,6 @@ async def callbacks(callback: types.CallbackQuery):
             "<b>Выбери категорию:</b>",
             reply_markup=categories_keyboard(),
         )
-
-        await callback.answer()
 
         return
 
@@ -4535,8 +4565,6 @@ async def callbacks(callback: types.CallbackQuery):
             reply_markup=main_keyboard(),
         )
 
-        await callback.answer()
-
         return
 
     # -------------------------
@@ -4580,8 +4608,6 @@ async def callbacks(callback: types.CallbackQuery):
             reply_markup=main_keyboard(),
         )
 
-        await callback.answer()
-
         return
 
     # -------------------------
@@ -4618,8 +4644,6 @@ async def callbacks(callback: types.CallbackQuery):
             user_id,
         )
 
-        await callback.answer()
-
         return
 
     # -------------------------
@@ -4632,11 +4656,10 @@ async def callbacks(callback: types.CallbackQuery):
 
         if not game:
 
-            await callback.answer(
-                "Начни новую игру",
-                show_alert=True,
-            )
-
+            # Сюда почти не должны попадать — этот случай уже
+            # обработан в самом начале функции. Оставляем как
+            # подстраховку, без повторного answer() (он уже
+            # был выполнен выше).
             return
 
         total_questions = len(game["questions"])
@@ -4735,8 +4758,6 @@ async def callbacks(callback: types.CallbackQuery):
 
             del games[user_id]
 
-            await callback.answer()
-
             return
 
         await send_question(
@@ -4744,8 +4765,6 @@ async def callbacks(callback: types.CallbackQuery):
             user_id,
             prefix=result,
         )
-
-        await callback.answer()
 
         return
 
@@ -4874,10 +4893,21 @@ async def webhook(request: Request):
         context={"bot": bot},
     )
 
-    await dp.feed_update(
-        bot,
-        update,
-    )
+    try:
+
+        await dp.feed_update(
+            bot,
+            update,
+        )
+
+    except Exception as error:
+
+        # Одна ошибка обработки конкретного апдейта (например,
+        # "query is too old" от Telegram) не должна ронять весь
+        # запрос и мешать обработке следующих сообщений. Логируем
+        # и всё равно отвечаем Telegram'у "ок", чтобы он не считал
+        # это сбоем и не пытался слать этот же апдейт повторно.
+        print(f"Ошибка при обработке апдейта: {error}")
 
     return {
         "ok": True
